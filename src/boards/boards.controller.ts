@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Delete,
+  Patch,
   Param,
   Body,
   Req,
@@ -24,6 +25,12 @@ export class BoardsController {
     return this.boardsService.getBoards(req.headers['x-user-id']);
   }
 
+  // ✅ View detail
+  @Get(':id')
+  getDetail(@Param('id') boardId: string, @Req() req) {
+    return this.boardsService.getBoardDetail(boardId, req.headers['x-user-id']);
+  }
+
   @Post(':id/share')
   share(
     @Param('id') boardId: string,
@@ -37,6 +44,12 @@ export class BoardsController {
       userId,
       role,
     );
+  }
+
+  // ✅ Update board (name)
+  @Patch(':id')
+  update(@Param('id') boardId: string, @Body('name') name: string, @Req() req) {
+    return this.boardsService.updateBoard(boardId, req.headers['x-user-id'], name);
   }
 
   @Delete(':id')
