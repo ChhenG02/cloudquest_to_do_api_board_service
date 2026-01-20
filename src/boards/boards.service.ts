@@ -17,7 +17,24 @@ export class BoardsService {
     private boardRepo: Repository<Board>,
     @InjectRepository(BoardMember)
     private memberRepo: Repository<BoardMember>,
+
   ) {}
+
+  async getUserRole(
+    boardId: string,
+    userId: string,
+  ): Promise<BoardRole | 'NONE'> {
+    const member = await this.memberRepo.findOne({
+      where: { boardId, userId },
+    });
+
+    return member?.role ?? 'NONE';
+  }
+
+  async canWrite(boardId: string, userId: string): Promise<boolean> {
+    const role = await this.getUserRole(boardId, userId);
+    return role === BoardRole.OWNER || role === BoardRole.EDITOR;
+  }
 
   async createBoard(name: string, userId: string) {
     const board = await this.boardRepo.save({
@@ -36,7 +53,7 @@ export class BoardsService {
 
   async getBoards(userId: string) {
     const memberships = await this.memberRepo.find({ where: { userId } });
-    const boardIds = memberships.map(m => m.boardId);
+    const boardIds = memberships.map((m) => m.boardId);
 
     // typeorm v0.3+ prefers find({ where: { id: In(boardIds) } })
     // but your code uses findByIds, keep it if it works in your version.
@@ -50,7 +67,7 @@ export class BoardsService {
       BoardRole.OWNER,
       BoardRole.EDITOR,
       BoardRole.VIEWER,
-    ]); 
+    ]);
 
     const board = await this.boardRepo.findOne({ where: { id: boardId } });
     if (!board) throw new NotFoundException('Board not found');
