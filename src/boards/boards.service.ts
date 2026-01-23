@@ -9,6 +9,8 @@ import { Repository, In } from 'typeorm';
 import { Board } from './board.entity';
 import { BoardMember } from './board-member.entity';
 import { BoardRole } from '../common/role.enum';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class BoardsService {
@@ -17,7 +19,7 @@ export class BoardsService {
     private boardRepo: Repository<Board>,
     @InjectRepository(BoardMember)
     private memberRepo: Repository<BoardMember>,
-
+    private readonly http: HttpService,
   ) {}
 
   async getUserRole(
@@ -117,7 +119,6 @@ export class BoardsService {
     return true;
   }
 
-  // ✅ Update board name (OWNER only)
   async updateBoard(boardId: string, userId: string, name: string) {
     if (!name || !name.trim()) {
       throw new BadRequestException('Name is required');
@@ -143,8 +144,19 @@ export class BoardsService {
     if (board.ownerId !== userId)
       throw new ForbiddenException('Only owner can delete');
 
+    // 1) delete board + members
     await this.memberRepo.delete({ boardId });
     await this.boardRepo.delete(boardId);
-    return { message: 'Board deleted' };
+
+    // 2) delete tasks in task-service by boardId
+    try {
+      await firstValueFrom(
+        this.http.delete(`http://task-service:3003/tasks/board/${boardId}`),
+      );
+    } catch (e) {
+      console.error('Failed to delete tasks for board:', boardId, e);
+    }
+
+    return { message: 'Board deleted', boardId };
   }
 }
