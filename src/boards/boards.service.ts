@@ -57,12 +57,9 @@ export class BoardsService {
     const memberships = await this.memberRepo.find({ where: { userId } });
     const boardIds = memberships.map((m) => m.boardId);
 
-    // typeorm v0.3+ prefers find({ where: { id: In(boardIds) } })
-    // but your code uses findByIds, keep it if it works in your version.
     return this.boardRepo.findByIds(boardIds);
   }
 
-  // ✅ View detail (member can view)
   async getBoardDetail(boardId: string, userId: string) {
     // must be member (OWNER/MEMBER/ADMIN etc)
     await this.checkPermission(boardId, userId, [
@@ -80,6 +77,46 @@ export class BoardsService {
     return { ...board, members };
   }
 
+  async getMembers(boardId: string, userId: string) {
+  await this.checkPermission(boardId, userId, [BoardRole.OWNER, BoardRole.EDITOR, BoardRole.VIEWER]);
+  return this.memberRepo.find({ where: { boardId } });
+}
+
+
+async updateMemberRole(boardId: string, ownerId: string, memberUserId: string, role: BoardRole) {
+  const board = await this.boardRepo.findOne({ where: { id: boardId } });
+  if (!board) throw new NotFoundException("Board not found");
+  if (board.ownerId !== ownerId) throw new ForbiddenException("Only owner can change roles");
+  if (memberUserId === ownerId) throw new BadRequestException("Owner role cannot be changed");
+
+  const member = await this.memberRepo.findOne({ where: { boardId, userId: memberUserId } });
+  if (!member) throw new NotFoundException("Member not found");
+
+  member.role = role;
+  await this.memberRepo.save(member);
+  return { message: "Role updated" };
+}
+
+async removeMember(boardId: string, ownerId: string, memberUserId: string) {
+  const board = await this.boardRepo.findOne({ where: { id: boardId } });
+  if (!board) throw new NotFoundException("Board not found");
+  if (board.ownerId !== ownerId) throw new ForbiddenException("Only owner can remove members");
+  if (memberUserId === ownerId) throw new BadRequestException("Owner cannot be removed");
+
+  await this.memberRepo.delete({ boardId, userId: memberUserId });
+
+  // if only owner remains, set back to personal
+  const remaining = await this.memberRepo.count({ where: { boardId } });
+  if (remaining <= 1) {
+    board.type = "personal";
+    await this.boardRepo.save(board);
+  }
+
+  return { message: "Member removed" };
+}
+
+
+
   async shareBoard(
     boardId: string,
     ownerId: string,
@@ -88,20 +125,30 @@ export class BoardsService {
   ) {
     const board = await this.boardRepo.findOne({ where: { id: boardId } });
     if (!board) throw new NotFoundException('Board not found');
-
     if (board.ownerId !== ownerId)
       throw new ForbiddenException('Only owner can share');
 
-    const existingMembers = await this.memberRepo.find({ where: { boardId } });
+    if (targetUserId === ownerId)
+      throw new BadRequestException('Owner already has access');
 
-    if (existingMembers.length > 1)
-      throw new ForbiddenException('Board already shared');
-
-    return this.memberRepo.save({
-      boardId,
-      userId: targetUserId,
-      role,
+    // upsert membership (avoid duplicates)
+    const existing = await this.memberRepo.findOne({
+      where: { boardId, userId: targetUserId },
     });
+    if (existing) {
+      existing.role = role;
+      await this.memberRepo.save(existing);
+    } else {
+      await this.memberRepo.save({ boardId, userId: targetUserId, role });
+    }
+
+    // mark board as team once shared
+    if (board.type !== 'team') {
+      board.type = 'team';
+      await this.boardRepo.save(board);
+    }
+
+    return { message: 'Shared', boardId, userId: targetUserId, role };
   }
 
   async checkPermission(

@@ -56,4 +56,34 @@ export class BoardsController {
   delete(@Param('id') boardId: string, @Req() req) {
     return this.boardsService.deleteBoard(boardId, req.headers['x-user-id']);
   }
+
+  @Get(":id/members")
+getMembers(@Param("id") boardId: string, @Req() req) {
+  return this.boardsService.getMembers(boardId, req.headers["x-user-id"]);
+}
+
+
+@Patch(":id/members/:memberUserId")
+updateMemberRole(
+  @Param("id") boardId: string,
+  @Param("memberUserId") memberUserId: string,
+  @Body("role") role: BoardRole,
+  @Req() req
+) {
+  return this.boardsService.updateMemberRole(boardId, req.headers["x-user-id"], memberUserId, role);
+}
+
+@Delete(":id/members/:memberUserId")
+removeMember(
+  @Param("id") boardId: string,
+  @Param("memberUserId") memberUserId: string,
+  @Req() req
+) {
+  return this.boardsService.removeMember(boardId, req.headers["x-user-id"], memberUserId);
+}
+@Get(":id/role")
+getMyRole(@Param("id") boardId: string, @Req() req) {
+  return this.boardsService.getUserRole(boardId, req.headers["x-user-id"]);
+}
+
 }

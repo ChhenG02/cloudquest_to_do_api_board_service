@@ -10,4 +10,7 @@ export class Board {
 
   @Column()
   ownerId: string;
+
+  @Column({ type: 'enum', enum: ['personal', 'team'], default: 'personal' })
+  type: 'personal' | 'team';
 }
