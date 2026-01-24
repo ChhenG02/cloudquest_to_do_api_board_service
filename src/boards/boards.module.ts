@@ -5,6 +5,7 @@ import { BoardMember } from './board-member.entity';
 import { BoardsService } from './boards.service';
 import { BoardsController } from './boards.controller';
 import { HttpModule } from "@nestjs/axios";
+import { InternalBoardController } from './internal-board.controller';
 
 @Module({
 imports: [
@@ -13,6 +14,6 @@ imports: [
   ],
   
   providers: [BoardsService],
-  controllers: [BoardsController],
+  controllers: [BoardsController, InternalBoardController,],
 })
 export class BoardsModule {}
