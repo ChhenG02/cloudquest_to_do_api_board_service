@@ -10,8 +10,14 @@ async function bootstrap() {
   }
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
   app.useStaticAssets(join(__dirname, '..', 'public'));
-  
-  await app.listen(process.env.PORT ?? 3002);
+
+  const PORT = process.env.PORT || '3002';
+
+  await app.listen(Number(PORT), '0.0.0.0');
+
+  console.log(`Board Service running on port ${PORT}`);
 }
+
 bootstrap();
