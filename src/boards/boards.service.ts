@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Board } from './board.entity';
 import { BoardMember } from './board-member.entity';
 import { BoardRole } from '../common/role.enum';
@@ -22,10 +22,11 @@ export class BoardsService {
     private readonly http: HttpService,
   ) {}
 
-  async getUserRole(
-    boardId: string,
-    userId: string,
-  ): Promise<BoardRole | 'NONE'> {
+  private get taskServiceUrl(): string {
+    return process.env.TASK_SERVICE_URL || 'http://localhost:3003';
+  }
+
+  async getUserRole(boardId: string, userId: string): Promise<BoardRole | 'NONE'> {
     const member = await this.memberRepo.findOne({
       where: { boardId, userId },
     });
@@ -61,7 +62,6 @@ export class BoardsService {
   }
 
   async getBoardDetail(boardId: string, userId: string) {
-    // must be member (OWNER/MEMBER/ADMIN etc)
     await this.checkPermission(boardId, userId, [
       BoardRole.OWNER,
       BoardRole.EDITOR,
@@ -71,51 +71,61 @@ export class BoardsService {
     const board = await this.boardRepo.findOne({ where: { id: boardId } });
     if (!board) throw new NotFoundException('Board not found');
 
-    // optional: include members list
     const members = await this.memberRepo.find({ where: { boardId } });
-
     return { ...board, members };
   }
 
   async getMembers(boardId: string, userId: string) {
-  await this.checkPermission(boardId, userId, [BoardRole.OWNER, BoardRole.EDITOR, BoardRole.VIEWER]);
-  return this.memberRepo.find({ where: { boardId } });
-}
-
-
-async updateMemberRole(boardId: string, ownerId: string, memberUserId: string, role: BoardRole) {
-  const board = await this.boardRepo.findOne({ where: { id: boardId } });
-  if (!board) throw new NotFoundException("Board not found");
-  if (board.ownerId !== ownerId) throw new ForbiddenException("Only owner can change roles");
-  if (memberUserId === ownerId) throw new BadRequestException("Owner role cannot be changed");
-
-  const member = await this.memberRepo.findOne({ where: { boardId, userId: memberUserId } });
-  if (!member) throw new NotFoundException("Member not found");
-
-  member.role = role;
-  await this.memberRepo.save(member);
-  return { message: "Role updated" };
-}
-
-async removeMember(boardId: string, ownerId: string, memberUserId: string) {
-  const board = await this.boardRepo.findOne({ where: { id: boardId } });
-  if (!board) throw new NotFoundException("Board not found");
-  if (board.ownerId !== ownerId) throw new ForbiddenException("Only owner can remove members");
-  if (memberUserId === ownerId) throw new BadRequestException("Owner cannot be removed");
-
-  await this.memberRepo.delete({ boardId, userId: memberUserId });
-
-  // if only owner remains, set back to personal
-  const remaining = await this.memberRepo.count({ where: { boardId } });
-  if (remaining <= 1) {
-    board.type = "personal";
-    await this.boardRepo.save(board);
+    await this.checkPermission(boardId, userId, [
+      BoardRole.OWNER,
+      BoardRole.EDITOR,
+      BoardRole.VIEWER,
+    ]);
+    return this.memberRepo.find({ where: { boardId } });
   }
 
-  return { message: "Member removed" };
-}
+  async updateMemberRole(
+    boardId: string,
+    ownerId: string,
+    memberUserId: string,
+    role: BoardRole,
+  ) {
+    const board = await this.boardRepo.findOne({ where: { id: boardId } });
+    if (!board) throw new NotFoundException('Board not found');
+    if (board.ownerId !== ownerId)
+      throw new ForbiddenException('Only owner can change roles');
+    if (memberUserId === ownerId)
+      throw new BadRequestException('Owner role cannot be changed');
 
+    const member = await this.memberRepo.findOne({
+      where: { boardId, userId: memberUserId },
+    });
+    if (!member) throw new NotFoundException('Member not found');
 
+    member.role = role;
+    await this.memberRepo.save(member);
+
+    return { message: 'Role updated' };
+  }
+
+  async removeMember(boardId: string, ownerId: string, memberUserId: string) {
+    const board = await this.boardRepo.findOne({ where: { id: boardId } });
+    if (!board) throw new NotFoundException('Board not found');
+    if (board.ownerId !== ownerId)
+      throw new ForbiddenException('Only owner can remove members');
+    if (memberUserId === ownerId)
+      throw new BadRequestException('Owner cannot be removed');
+
+    await this.memberRepo.delete({ boardId, userId: memberUserId });
+
+    const remaining = await this.memberRepo.count({ where: { boardId } });
+    if (remaining <= 1) {
+      board.type = 'personal';
+      await this.boardRepo.save(board);
+    }
+
+    return { message: 'Member removed' };
+  }
 
   async shareBoard(
     boardId: string,
@@ -131,10 +141,10 @@ async removeMember(boardId: string, ownerId: string, memberUserId: string) {
     if (targetUserId === ownerId)
       throw new BadRequestException('Owner already has access');
 
-    // upsert membership (avoid duplicates)
     const existing = await this.memberRepo.findOne({
       where: { boardId, userId: targetUserId },
     });
+
     if (existing) {
       existing.role = role;
       await this.memberRepo.save(existing);
@@ -142,7 +152,6 @@ async removeMember(boardId: string, ownerId: string, memberUserId: string) {
       await this.memberRepo.save({ boardId, userId: targetUserId, role });
     }
 
-    // mark board as team once shared
     if (board.type !== 'team') {
       board.type = 'team';
       await this.boardRepo.save(board);
@@ -174,9 +183,8 @@ async removeMember(boardId: string, ownerId: string, memberUserId: string) {
     const board = await this.boardRepo.findOne({ where: { id: boardId } });
     if (!board) throw new NotFoundException('Board not found');
 
-    if (board.ownerId !== userId) {
+    if (board.ownerId !== userId)
       throw new ForbiddenException('Only owner can update');
-    }
 
     board.name = name.trim();
     await this.boardRepo.save(board);
@@ -191,14 +199,15 @@ async removeMember(boardId: string, ownerId: string, memberUserId: string) {
     if (board.ownerId !== userId)
       throw new ForbiddenException('Only owner can delete');
 
-    // 1) delete board + members
     await this.memberRepo.delete({ boardId });
     await this.boardRepo.delete(boardId);
 
-    // 2) delete tasks in task-service by boardId
+    // ✅ delete tasks via env-based URL
     try {
       await firstValueFrom(
-        this.http.delete(`http://task-service:3003/tasks/board/${boardId}`),
+        this.http.delete(
+          `${this.taskServiceUrl}/tasks/board/${boardId}`,
+        ),
       );
     } catch (e) {
       console.error('Failed to delete tasks for board:', boardId, e);
